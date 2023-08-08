@@ -189,7 +189,7 @@ class Base_Onsite_LLM(ABC):
     def finetune_immediately(self):
         finetune()()
 
-class TokenConstraint:
+class TokenConstraint(ABC):
     def __init__(self, constraint_type, state_type, model_uri):
         self.constraint_type = constraint_type
         self.state_type = state_type
@@ -216,6 +216,118 @@ class TokenConstraint:
 
         return valid_ids
 
+    def _regex_to_nfa(self, infix):
+        def infix_to_postfix(infix):
+            # Dictionary for special characters gives them an order of precedence
+            specials = {'*': 60, '+': 55, '?': 50, '.': 40, '|': 20}
+
+            postfix, stack = "", ""
+
+            for c in infix:
+                if c == '(':
+                    stack = stack + c
+                elif c == ')':
+                    while stack[-1] != '(':  
+                        postfix = postfix + stack[-1]  
+                        stack = stack[:-1] 
+                    stack = stack[:-1]  
+                elif c in specials:
+                    while stack and specials.get(c, 0) <= specials.get(stack[-1], 0):
+                        postfix, stack = postfix + stack[-1], stack[:-1]
+                    stack = stack + c
+                else:
+                    postfix = postfix + c
+            while stack:
+                postfix, stack = postfix + stack[-1], stack[:-1]
+
+            return postfix
+
+        # Thompsons construction Algorithm
+        class State:
+            label, edge1, edge2 = None, None, None
+
+        class NFA:
+            initial, accept = None, None
+            
+            def __init__(self, initial, accept):
+                self.initial, self.accept = initial, accept
+
+        def compile(postfix):
+            nfaStack = []
+            for c in postfix:
+                if c == '*':
+                    nfa1 = nfaStack.pop()
+                    initial, accept = State(), State()
+                    initial.edge1, initial.edge2 = nfa1.initial, accept
+                    nfa1.accept.edge1, nfa1.accept.edge2 = nfa1.initial, accept
+                    nfaStack.append(NFA(initial, accept))
+                elif c == '.':
+                    nfa2, nfa1 = nfaStack.pop(), nfaStack.pop()
+                    nfa1.accept.edge1 = nfa2.initial
+                    nfaStack.append(NFA(nfa1.initial, nfa2.accept))
+                elif c == '|':
+                    nfa2, nfa1 = nfaStack.pop(), nfaStack.pop()
+                    initial = State()
+                    initial.edge1, initial.edge2 = nfa1.initial, nfa2.initial
+                    accept = State()
+                    nfa1.accept.edge1, nfa2.accept.edge1 = accept, accept
+                    nfaStack.append(NFA(initial, accept))
+                elif c == '+':
+                    nfa1 = nfaStack.pop()
+                    accept, initial = State(), State()
+                    initial.edge1 = nfa1.initial
+                    nfa1.accept.edge1, nfa1.accept.edge2 = nfa1.initial, accept
+                    nfaStack.append(NFA(initial, accept))
+                elif c == '?':
+                    nfa1 = nfaStack.pop()
+                    accept, initial = State(), State()
+                    initial.edge1, initial.edge2 = nfa1.initial, accept
+                    nfa1.accept.edge1 = accept
+                    nfaStack.append(NFA(initial, accept))
+                else:
+                    accept, initial = State(), State()
+                    initial.label, initial.edge1 = c, accept
+                    nfaStack.append(NFA(initial, accept))
+            return nfaStack.pop()
+        
+        postf = infix_to_postfix(infix)
+        res = compile(postf)
+        print(res.initial.label)
+
+        def follow_edges(state):
+            states = set()
+            states.add(state)
+
+            if state.label is None:
+                if state.edge1 is not None:
+                    states |= follow_edges(state.edge1)
+                if state.edge2 is not None:
+                    states |= follow_edges(state.edge2)
+
+            return states
+
+        def match(infix, string):
+            postfix = infix_to_postfix(infix)
+            nfa = compile(postfix)
+            current = set()
+            nexts = set()
+
+            current |= follow_edges(nfa.initial)
+
+            # loop through each character in the string
+            for s in string:
+                # loop through the current set of states
+                for c in current:
+                # Check to see if state is labelled 's'
+                    if c.label == s:
+                        nexts |= follow_edges(c.edge1)
+                # set current to next and clears out next
+                current = nexts
+                # next is back to an empty set
+                nexts = set()
+
+            # Checks if the accept state is in the set for current state
+            return (nfa.accept in current)
 
 
 """
@@ -511,5 +623,6 @@ if __name__ == "__main__":
     input_ids = tokenizer(input_text, return_tensors="pt")
     model_input = input_ids["input_ids"]
     re_exp = r"doctor|person"
-    res = interface.construct_crude_filter_set(re_exp)
-    print(res)
+    re_str = "doctor|person"
+    res = interface._regex_to_nfa(re_exp)
+    # print(res)

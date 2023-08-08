@@ -3,6 +3,7 @@ from abc import ABC,abstractmethod
 import openai
 import math
 from transformers import (
+    AutoModelForCausalLM,
     AutoModelForMaskedLM,
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
@@ -16,13 +17,17 @@ from transformers import (
     GPT2Tokenizer,
     DataCollatorForLanguageModeling,
     TrainingArguments,
-    Trainer)
+    Trainer,
+    LogitsProcessorList,
+    LogitsProcessor
+    )
 import time
 from datetime import datetime
 import tempfile
 import json
 import os
 import torch
+import re
 
 
 __private_key_value_models_map =  {}
@@ -183,6 +188,35 @@ class Base_Onsite_LLM(ABC):
 
     def finetune_immediately(self):
         finetune()()
+
+class TokenConstraint:
+    def __init__(self, constraint_type, state_type, model_uri):
+        self.constraint_type = constraint_type
+        self.state_type = state_type
+        self.model_uri = model_uri
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_uri, add_prefix_space=True)
+
+    def construct_crude_filter_set(self, expression):
+        vocab = self.tokenizer.vocab
+        if self.constraint_type == 'regex':
+            vocab_map = {v: k for k, v in vocab.items()}
+            space_repr = self.tokenizer.tokenize(" ")[0]
+            print(space_repr)
+            nl_repr = self.tokenizer.tokenize("\n")[0]
+            print(nl_repr)
+            expression = expression.replace(" ", space_repr)
+            expression = expression.replace("\n", nl_repr)
+            expression = expression.replace(" ", self.tokenizer.tokenize(" ")[0])
+
+        valid_ids = []
+        pattern = re.compile(expression, re.UNICODE)
+        for id, subtoken in vocab_map.items():
+            if pattern.match(subtoken) is not None:
+                valid_ids.append(id)
+
+        return valid_ids
+
+
 
 """
 this factorization isn't necessarily the greatest, nor should it be viewed
@@ -467,3 +501,15 @@ class Chat_GPT:
         # optimizer.storage.set_training_in_progress(c_id, False)
         # if old_model is not None:
         #     openai.Model.delete(old_model)
+
+
+if __name__ == "__main__":
+    interface = TokenConstraint("regex","full-match","facebook/opt-350m")
+    tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m", add_prefix_space=True)
+
+    input_text = "The one performing the heart surgery is a"
+    input_ids = tokenizer(input_text, return_tensors="pt")
+    model_input = input_ids["input_ids"]
+    re_exp = r"doctor|person"
+    res = interface.construct_crude_filter_set(re_exp)
+    print(res)

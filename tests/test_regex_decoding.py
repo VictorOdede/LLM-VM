@@ -18,5 +18,5 @@ if __name__ == "__main__":
             print(tokenizer.decode(tokens[-1]))
             return False
         
-    output = model.generate(model_input, torch.ones_like(model_input), 1.0, 10, DebugStreamer(), r_string, r_bias)
-    print("Generated output: ", tokenizer.batch_decode(output[0], skip_special_tokens=True))
+    output = model.generate(model_input, torch.ones_like(model_input), 1.0, 10, None, r_string, r_bias)
+    print("Generated output: ", tokenizer.batch_decode(output[0], skip_special_tokens=True)[0])

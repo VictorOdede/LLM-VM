@@ -28,7 +28,7 @@ import json
 import os
 import torch
 import re
-
+from itertools import chain, combinations
 
 __private_key_value_models_map =  {}
 # []   {
@@ -220,7 +220,6 @@ class TokenConstraint(ABC):
         def infix_to_postfix(infix):
             # Dictionary for special characters gives them an order of precedence
             specials = {'*': 60, '+': 55, '?': 50, '.': 40, '|': 20}
-
             postfix, stack = "", ""
 
             for c in infix:
@@ -245,54 +244,86 @@ class TokenConstraint(ABC):
         # Thompsons construction Algorithm
         class State:
             label, edge1, edge2 = None, None, None
-
+        state = {"label": None, "edge1": None, "edge2": None}
+        
         class NFA:
             initial, accept = None, None
             
             def __init__(self, initial, accept):
                 self.initial, self.accept = initial, accept
+        
+        nfa = {"initial": None, "accept": None}
 
         def compile(postfix):
             nfaStack = []
             for c in postfix:
                 if c == '*':
-                    nfa1 = nfaStack.pop()
-                    initial, accept = State(), State()
-                    initial.edge1, initial.edge2 = nfa1.initial, accept
-                    nfa1.accept.edge1, nfa1.accept.edge2 = nfa1.initial, accept
-                    nfaStack.append(NFA(initial, accept))
-                elif c == '.':
-                    nfa2, nfa1 = nfaStack.pop(), nfaStack.pop()
-                    nfa1.accept.edge1 = nfa2.initial
-                    nfaStack.append(NFA(nfa1.initial, nfa2.accept))
-                elif c == '|':
-                    nfa2, nfa1 = nfaStack.pop(), nfaStack.pop()
-                    initial = State()
-                    initial.edge1, initial.edge2 = nfa1.initial, nfa2.initial
-                    accept = State()
-                    nfa1.accept.edge1, nfa2.accept.edge1 = accept, accept
-                    nfaStack.append(NFA(initial, accept))
-                elif c == '+':
-                    nfa1 = nfaStack.pop()
-                    accept, initial = State(), State()
-                    initial.edge1 = nfa1.initial
-                    nfa1.accept.edge1, nfa1.accept.edge2 = nfa1.initial, accept
-                    nfaStack.append(NFA(initial, accept))
-                elif c == '?':
-                    nfa1 = nfaStack.pop()
-                    accept, initial = State(), State()
-                    initial.edge1, initial.edge2 = nfa1.initial, accept
-                    nfa1.accept.edge1 = accept
-                    nfaStack.append(NFA(initial, accept))
+                    pass
+                #     nfa1 = nfaStack.pop()
+                #     initial, accept = State(), State()
+                #     initial.edge1, initial.edge2 = nfa1.initial, accept
+                #     nfa1.accept.edge1, nfa1.accept.edge2 = nfa1.initial, accept
+                #     nfaStack.append(NFA(initial, accept))
+                # elif c == '.':
+                #     nfa2, nfa1 = nfaStack.pop(), nfaStack.pop()
+                #     nfa1.accept.edge1 = nfa2.initial
+                #     nfaStack.append(NFA(nfa1.initial, nfa2.accept))
+                # elif c == '|':
+                #     nfa2, nfa1 = nfaStack.pop(), nfaStack.pop()
+                #     initial = State()
+                #     initial.edge1, initial.edge2 = nfa1.initial, nfa2.initial
+                #     accept = State()
+                #     nfa1.accept.edge1, nfa2.accept.edge1 = accept, accept
+                #     nfaStack.append(NFA(initial, accept))
+                # elif c == '+':
+                #     nfa1 = nfaStack.pop()
+                #     accept, initial = State(), State()
+                #     initial.edge1 = nfa1.initial
+                #     nfa1.accept.edge1, nfa1.accept.edge2 = nfa1.initial, accept
+                #     nfaStack.append(NFA(initial, accept))
+                # elif c == '?':
+                #     nfa1 = nfaStack.pop()
+                #     accept, initial = State(), State()
+                #     initial.edge1, initial.edge2 = nfa1.initial, accept
+                #     nfa1.accept.edge1 = accept
+                #     nfaStack.append(NFA(initial, accept))
                 else:
-                    accept, initial = State(), State()
-                    initial.label, initial.edge1 = c, accept
-                    nfaStack.append(NFA(initial, accept))
+                    print(nfaStack)
+                    # accept, initial = State(), State()
+                    # initial.label, initial.edge1 = c, accept
+                    # nfaStack.append(NFA(initial, accept))
+                    accept, initial = state, state
+                    initial["label"] = c
+                    initial["edge1"] = accept
+                    curr_nfa = nfa
+                    curr_nfa["initial"] = initial
+                    curr_nfa["accept"] = accept
+                    nfaStack.append(curr_nfa)
             return nfaStack.pop()
+        
+        # class DFA:
+        #     STATUS_NUM = 0
+
+        #     def __init__(self):
+        #         self.nfa_sets = []
+        #         self.accepted = False
+        #         self.status_num = -1
+
+        #     @classmethod
+        #     def nfa_to_dfa(cls, nfa):
+        #         dfa = cls()
+        #         for n in nfa:
+        #             dfa.nfa_sets.append(n)
+        #             if n.next_1 is None and n.next_2 is None:
+        #                 dfa.accepted = True
+
+        #         dfa.status_num = DFA.STATUS_NUM
+        #         DFA.STATUS_NUM = DFA.STATUS_NUM + 1
+        #         return dfa
         
         postf = infix_to_postfix(infix)
         res = compile(postf)
-        print(res.initial.label)
+        print(res)
 
         def follow_edges(state):
             states = set()
@@ -325,9 +356,172 @@ class TokenConstraint(ABC):
                 current = nexts
                 # next is back to an empty set
                 nexts = set()
-
             # Checks if the accept state is in the set for current state
             return (nfa.accept in current)
+
+class TokenStreamerAsStoppingCriterion:
+    def __init__(self, token_streamer):
+        self.token_streamer = token_streamer
+
+    def __call__(self, input_ids, scores, **kwargs):
+        if self.token_streamer is None:
+            return None
+        else:
+            self.token_streamer(input_ids, scores, **kwargs)
+            return False
+
+
+class RegexBiasLogitsProcessor(LogitsProcessor):
+        def __init__(self, sequence_bias):
+            self.sequence_bias = sequence_bias
+            self._validate_arguments()
+
+            # Bias variables that will be populated on the first call (for retrocompatibility purposes, the vocabulary size
+            # is infered in the first usage, which inhibits initializing here)
+            self.sequences_length_greater_than_1 = []
+            self.length_1_bias = None
+            self.length_greather_than_1_bias = None
+            self.prepared_bias_variables = False
+
+        def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+            # 1 - Prepares the bias tensors. This is only needed the first time the logit processor is called.
+            if not self.prepared_bias_variables:
+                self._prepare_bias_variables(scores)
+
+            # 2 - prepares an empty bias to add
+            bias = torch.zeros_like(scores)
+
+            # 3 - include the bias from length = 1
+            bias += self.length_1_bias
+
+            # 4 - include the bias from length > 1, after determining which biased sequences may be completed.
+            # `matching_mask` is a (batch_size, vocab_size) boolean mask that is True for all tokens whose corresponding
+            # bias should be applied. The bias is applied on the last token of the sequence, if (and only if) the sequence
+            # may become complete this iteration.
+            matching_mask = torch.zeros_like(scores, dtype=torch.bool)
+            for sequence_ids in self.sequences_length_greater_than_1:
+                if len(sequence_ids) > input_ids.shape[1]:  # the sequence is longer than the context, ignore
+                    continue
+                prefix_length = len(sequence_ids) - 1
+                last_token = sequence_ids[-1]
+                matching_rows = torch.eq(
+                    input_ids[:, -prefix_length:],
+                    torch.tensor(sequence_ids[:-1], dtype=input_ids.dtype, device=input_ids.device),
+                ).prod(dim=1)
+                matching_mask[:, last_token] |= matching_rows.bool()
+            bias += torch.where(
+                matching_mask,
+                self.length_greather_than_1_bias,
+                torch.tensor(0.0, device=self.length_greather_than_1_bias.device),
+            )
+
+            # 5 - apply the bias to the scores
+            scores = scores + bias
+            return scores
+
+        def _prepare_bias_variables(self, scores: torch.FloatTensor):
+            vocabulary_size = scores.shape[-1]
+            sequence_bias = self.sequence_bias
+            tokens_with_bias = []
+
+            # Check biased tokens out of bounds
+            invalid_biases = []
+            for sequence_ids in sequence_bias:
+                for token_id in sequence_ids:
+                    if token_id >= vocabulary_size:
+                        invalid_biases.append(token_id)
+            if len(invalid_biases) > 0:
+                raise ValueError(
+                    f"The model vocabulary size is {vocabulary_size}, but the following tokens were being biased: "
+                    f"{invalid_biases}"
+                )
+
+            # Precompute the bias tensors to be applied. Sequences of length 1 are kept separately, as they can be applied
+            # with simpler logic.
+            self.length_1_bias = torch.zeros((vocabulary_size,), dtype=torch.float).to(scores.device)
+            self.length_greather_than_1_bias = torch.zeros((vocabulary_size,), dtype=torch.float).to(scores.device)
+            for sequence_ids, bias in sequence_bias.items():
+                if len(sequence_ids) == 1:
+                    self.length_1_bias[sequence_ids[-1]] = bias
+                else:
+                    self.sequences_length_greater_than_1.append(sequence_ids)
+                    if self.length_greather_than_1_bias[sequence_ids[-1]] != 0.0:
+                        raise ValueError(
+                            "Setting a bias on sequences that share a common token termination is not yet supported. "
+                            "Please open an issue if you see this error message (after checking that it doesn't already "
+                            "exist)."
+                        )
+                    self.length_greather_than_1_bias[sequence_ids[-1]] = bias
+                tokens_with_bias.append(sequence_ids[-1])
+
+            self.prepared_bias_variables = True
+
+        def _validate_arguments(self):
+            sequence_bias = self.sequence_bias
+            if not isinstance(sequence_bias, dict) or len(sequence_bias) == 0:
+                raise ValueError(f"`sequence_bias` has to be a non-empty dictionary, but is {sequence_bias}.")
+            if any(not isinstance(sequence_ids, tuple) for sequence_ids in sequence_bias.keys()):
+                raise ValueError(f"`sequence_bias` has to be a dict with tuples as keys, but is {sequence_bias}.")
+            if any(
+                any((not isinstance(token_id, (int, torch.int)) or token_id < 0) for token_id in sequence_ids)
+                or len(sequence_ids) == 0
+                for sequence_ids in sequence_bias.keys()
+            ):
+                raise ValueError(
+                    f"Each key in `sequence_bias` has to be a non-empty tuple of positive integers, but is "
+                    f"{sequence_bias}."
+                )
+            if any(not isinstance(bias, float) for bias in sequence_bias.values()):
+                raise ValueError(f"`sequence_bias` has to be a dict with floats as values, but is {sequence_bias}.")
+
+
+
+class HFTransformersWithConstraints:
+    def __init__(self, model_uri, **kwargs):
+        self.model_identifier = model_uri
+        self.model_args = kwargs
+
+        print(f"Creating {self.model_identifier} instance using AutoModelForCausalLM transformers module", flush=True)
+        self.model = AutoModelForCausalLM.from_pretrained(self.model_identifier, **self.model_args)
+        print(f"{self.model_identifier} model is ready for use on {self.model.device}", flush=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_identifier, add_prefix_space=True)
+        self.vocab_size = self.tokenizer.vocab_size
+        self.vocab = self.tokenizer.vocab
+
+    @property
+    def eos_token_id(self):
+        return self.model.config.eos_token_id
+
+    
+    def generate(self, input_ids, attention_mask, temperature, max_new_tokens, streamer, regex, r_bias):
+        assert torch.is_tensor(input_ids), "Input ids must be a torch tensor"
+        assert torch.is_tensor(attention_mask), "Attention mask must be a torch tensor"    
+
+        legal_tokens = self._make_mask_from_regex(regex)
+
+        seq_bias = {}
+        for t in legal_tokens:
+            t_tuple = tuple(self.tokenizer.encode(t, add_special_tokens=False))
+            seq_bias[t_tuple] = r_bias
+
+        logits_processor = LogitsProcessorList()
+        logits_processor.append(RegexBiasLogitsProcessor(seq_bias))
+        
+        kwargs = {
+            "input_ids": input_ids.to(self.model.device),
+            "do_sample": temperature > 0.0,
+            "attention_mask": attention_mask.to(self.model.device),
+            "temperature": temperature,
+            "max_new_tokens": max_new_tokens,
+            "logits_processor": logits_processor,
+            "output_scores": True,
+            "return_dict_in_generate": True
+        }
+
+        result = self.model.generate(**kwargs, stopping_criteria=[TokenStreamerAsStoppingCriterion(streamer)], 
+                                     eos_token_id=self.eos_token_id, pad_token_id=self.eos_token_id)
+
+        return (result.sequences, result.scores)
 
 
 """
@@ -616,13 +810,295 @@ class Chat_GPT:
 
 
 if __name__ == "__main__":
-    interface = TokenConstraint("regex","full-match","facebook/opt-350m")
-    tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m", add_prefix_space=True)
+    # interface = TokenConstraint("regex","full-match","facebook/opt-350m")
+    # tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m", add_prefix_space=True)
 
-    input_text = "The one performing the heart surgery is a"
-    input_ids = tokenizer(input_text, return_tensors="pt")
-    model_input = input_ids["input_ids"]
-    re_exp = r"doctor|person"
-    re_str = "doctor|person"
-    res = interface._regex_to_nfa(re_exp)
+    # input_text = "The one performing the heart surgery is a"
+    # input_ids = tokenizer(input_text, return_tensors="pt")
+    # model_input = input_ids["input_ids"]
+    # re_exp = r"doctor|person"
+    # re_str = "doctor|person"
+    # res = interface._regex_to_nfa(re_exp)
     # print(res)
+
+    non_symbols = ['+', '*', '.', '(', ')']
+    nfa = {}
+    dfa = {}
+    nfa_states = []
+    dfa_states = []
+
+
+    class charType:
+        SYMBOL = 1
+        CONCAT = 2
+        UNION  = 3
+        KLEENE = 4
+
+
+    class NFAState:
+        def __init__(self):
+            self.next_state = {}
+
+
+    class ExpressionTree:
+
+        def __init__(self, charType, value=None):
+            self.charType = charType
+            self.value = value
+            self.left = None
+            self.right = None
+        
+
+    def make_exp_tree(regexp):
+        stack = []
+        for c in regexp:
+            if c == "+":
+                z = ExpressionTree(charType.UNION)
+                z.right = stack.pop()
+                z.left = stack.pop()
+                stack.append(z)
+            elif c == ".":
+                z = ExpressionTree(charType.CONCAT)
+                z.right = stack.pop()
+                z.left = stack.pop()
+                stack.append(z)
+            elif c == "*":
+                z = ExpressionTree(charType.KLEENE)
+                z.left = stack.pop() 
+                stack.append(z)
+            elif c == "(" or c == ")":
+                continue  
+            else:
+                stack.append(ExpressionTree(charType.SYMBOL, c))
+        return stack[0]
+
+
+    def compPrecedence(a, b):
+        p = ["+", ".", "*"]
+        return p.index(a) > p.index(b)
+
+
+    def compute_regex(exp_t):
+        # returns E-NFA
+        if exp_t.charType == charType.CONCAT:
+            return do_concat(exp_t)
+        elif exp_t.charType == charType.UNION:
+            return do_union(exp_t)
+        elif exp_t.charType == charType.KLEENE:
+            return do_kleene_star(exp_t)
+        else:
+            return eval_symbol(exp_t)
+
+
+    def eval_symbol(exp_t):
+        start = NFAState()
+        end = NFAState()
+        
+        start.next_state[exp_t.value] = [end]
+        return start, end
+
+
+    def do_concat(exp_t):
+        left_nfa  = compute_regex(exp_t.left)
+        right_nfa = compute_regex(exp_t.right)
+
+        left_nfa[1].next_state['$'] = [right_nfa[0]]
+        return left_nfa[0], right_nfa[1]
+
+
+    def do_union(exp_t):
+        start = NFAState()
+        end = NFAState()
+
+        first_nfa = compute_regex(exp_t.left)
+        second_nfa = compute_regex(exp_t.right)
+
+        start.next_state['$'] = [first_nfa[0], second_nfa[0]]
+        first_nfa[1].next_state['$'] = [end]
+        second_nfa[1].next_state['$'] = [end]
+
+        return start, end
+
+
+    def do_kleene_star(exp_t):
+        start = NFAState()
+        end = NFAState()
+
+        starred_nfa = compute_regex(exp_t.left)
+
+        start.next_state['$'] = [starred_nfa[0], end]
+        starred_nfa[1].next_state['$'] = [starred_nfa[0], end]
+
+        return start, end
+
+
+    def arrange_transitions(state, states_done, symbol_table):
+        global nfa
+
+        if state in states_done:
+            return
+
+        states_done.append(state)
+
+        for symbol in list(state.next_state):
+            if symbol not in nfa['letters']:
+                nfa['letters'].append(symbol)
+            for ns in state.next_state[symbol]:
+                if ns not in symbol_table:
+                    symbol_table[ns] = sorted(symbol_table.values())[-1] + 1
+                    q_state = "Q" + str(symbol_table[ns])
+                    nfa['states'].append(q_state)
+                nfa['transition_function'].append(["Q" + str(symbol_table[state]), symbol, "Q" + str(symbol_table[ns])])
+
+            for ns in state.next_state[symbol]:
+                arrange_transitions(ns, states_done, symbol_table)
+
+    def notation_to_num(str):
+        return int(str[1:])
+
+
+    def final_st_dfs():
+        global nfa
+        for st in nfa["states"]:
+            count = 0
+            for val in nfa['transition_function']:
+                if val[0] == st and val[2] != st:
+                    count += 1
+            if count == 0 and st not in nfa["final_states"]:
+                nfa["final_states"].append(st)
+
+
+    def arrange_nfa(fa):
+        global nfa
+        nfa['states'] = []
+        nfa['letters'] = []
+        nfa['transition_function'] = []
+        nfa['start_states'] = []
+        nfa['final_states'] = []
+        q_1 = "Q" + str(1)
+        nfa['states'].append(q_1)
+        arrange_transitions(fa[0], [], {fa[0] : 1})
+        
+        st_num = [notation_to_num(i) for i in nfa['states']]
+
+        nfa["start_states"].append("Q1")
+        final_st_dfs()
+
+
+    def add_concat(regex):
+        global non_symbols
+        l = len(regex)
+        res = []
+        for i in range(l - 1):
+            res.append(regex[i])
+            if regex[i] not in non_symbols:
+                if regex[i + 1] not in non_symbols or regex[i + 1] == '(':
+                    res += '.'
+            if regex[i] == ')' and regex[i + 1] == '(':
+                res += '.'
+            if regex[i] == '*' and regex[i + 1] == '(':
+                res += '.'
+            if regex[i] == '*' and regex[i + 1] not in non_symbols:
+                res += '.'
+            if regex[i] == ')' and regex[i + 1] not in non_symbols:
+                res += '.'
+
+        res += regex[l - 1]
+        return res
+
+
+    def compute_postfix(regexp):
+        stk = []
+        res = ""
+
+        for c in regexp:
+            if c not in non_symbols or c == "*":
+                res += c
+            elif c == ")":
+                while len(stk) > 0 and stk[-1] != "(":
+                    res += stk.pop()
+                stk.pop()
+            elif c == "(":
+                stk.append(c)
+            elif len(stk) == 0 or stk[-1] == "(" or compPrecedence(c, stk[-1]):
+                stk.append(c)
+            else:
+                while len(stk) > 0 and stk[-1] != "(" and not compPrecedence(c, stk[-1]):
+                    res += stk.pop()
+                stk.append(c)
+
+        while len(stk) > 0:
+            res += stk.pop()
+
+        return res
+
+    def polish_regex(regex):
+        reg = add_concat(regex)
+        print(reg)
+        regg = compute_postfix(reg)
+        return regg
+    
+    def output_nfa():
+        global nfa
+        print(nfa)
+    
+    re_str = "doctor|person"
+    # re_str = "a|b"
+    pr = polish_regex(re_str)
+    et = make_exp_tree(pr)
+    fa = compute_regex(et)
+    arrange_nfa(fa)
+
+    def get_power_set(nfa_st):
+        powerset = list(chain.from_iterable(combinations(nfa_st, r) for r in range(len(nfa_st)+1)))
+        print("itertools: ", len(powerset))
+        return powerset
+    
+    def out_dfa():
+        global dfa
+        print(dfa)
+    
+    dfa['states'] = []
+    dfa['letters'] = nfa['letters']
+    dfa['transition_function'] = []
+
+    for state in nfa['states']:
+        nfa_states.append(state)
+
+    dfa_states = get_power_set(nfa_states)
+
+    dfa['states'] = []
+    for states in dfa_states:
+        temp = []
+        for state in states:
+            temp.append(state)
+        dfa['states'].append(temp)
+
+    for states in dfa_states:
+        for letter in nfa['letters']:
+            q_to = []
+            for state in states:
+                for val in nfa['transition_function']:
+                    start = val[0]
+                    inp = val[1]
+                    end = val[2]
+                    if state == start and letter == inp:
+                        if end not in q_to:
+                            q_to.append(end)
+            q_states = []
+            for i in states:
+                q_states.append(i)
+            dfa['transition_function'].append([q_states, letter, q_to])
+
+    dfa['start_states'] = []
+    for state in nfa['start_states']:
+        dfa['start_states'].append([state])
+    dfa['final_states'] = []
+    for states in dfa['states']:
+        for state in states:
+            if state in nfa['final_states'] and states not in dfa['final_states']:
+                dfa['final_states'].append(states)
+    
+    out_dfa()
+    
+    # output_nfa()
